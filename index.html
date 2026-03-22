@@ -582,10 +582,11 @@
       <div id="favorites-manage-list"></div>
     </div>
 
-    <!-- Apply recurring -->
+    <!-- Recurring management -->
     <div class="settings-section">
       <div class="settings-section-title">Recurring</div>
-      <button class="btn btn-secondary btn-full" onclick="applyRecurring()">Apply Recurring Expenses This Month</button>
+      <div id="recurring-manage-list"></div>
+      <button class="btn btn-secondary btn-full" onclick="applyRecurring()" style="margin-top:8px">Apply Recurring Expenses This Month</button>
     </div>
 
     <!-- Export -->
@@ -617,6 +618,41 @@
       Settings
     </button>
   </nav>
+</div>
+
+<!-- Edit Expense Modal -->
+<div id="edit-modal" class="modal-overlay" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="modal-title">Edit Expense</div>
+      <button class="btn btn-danger" style="padding:8px 14px;font-size:13px" onclick="deleteFromEdit()">Delete</button>
+    </div>
+    <div class="amount-field">
+      <div class="amount-row">
+        <span class="currency-symbol">₪</span>
+        <input type="number" id="edit-amount" placeholder="0" inputmode="decimal" min="0" step="0.01" oninput="updateEditUSD()">
+      </div>
+      <div id="edit-usd-equiv">≈ $0.00</div>
+    </div>
+    <div class="field">
+      <div class="field-label">Category</div>
+      <div class="category-grid" id="edit-category-grid"></div>
+    </div>
+    <div class="field">
+      <div class="field-label">Note</div>
+      <input type="text" id="edit-note" placeholder="Optional note…">
+    </div>
+    <div class="field">
+      <div class="field-label">Date</div>
+      <input type="date" id="edit-date">
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">🔁 Recurring expense</span>
+      <div class="toggle" id="edit-recurring-toggle" onclick="this.classList.toggle('on')"></div>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="saveEdit()">Save Changes</button>
+  </div>
 </div>
 
 <!-- Save Favorite Modal -->
@@ -897,7 +933,7 @@ function renderHistory() {
     const formatted = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     const itemsHtml = items.map(e => {
       const cat = CAT_MAP[e.category] || CAT_MAP['Other'];
-      return `<div class="expense-item" data-id="${e.id}" id="ei-${e.id}">
+      return `<div class="expense-item" data-id="${e.id}" id="ei-${e.id}" onclick="openEditModal('${e.id}')">
         <div class="expense-dot" style="background:${cat.color}"></div>
         <div class="expense-info">
           <div class="expense-cat">${cat.emoji} ${e.category}${e.isRecurring ? ' <span class="expense-recurring">RECURRING</span>' : ''}</div>
@@ -907,7 +943,7 @@ function renderHistory() {
           <div class="expense-amount">${ils(e.amount)}</div>
           <div class="expense-amount-usd">${usd(e.amount)}</div>
         </div>
-        <div class="swipe-delete-bg" onclick="deleteExpense('${e.id}')">🗑</div>
+        <div class="swipe-delete-bg" onclick="event.stopPropagation();deleteExpense('${e.id}')">🗑</div>
       </div>`;
     }).join('');
     return `<div class="day-group">
@@ -938,6 +974,92 @@ async function deleteExpense(id) {
   } catch {
     if (el) el.style.opacity = '1';
   }
+}
+
+// ── Edit Modal ──
+let editingId = null;
+let editCategory = CATEGORIES[0].id;
+let editOpenedFrom = 'history'; // 'history' or 'settings'
+
+function buildEditCategoryGrid() {
+  const grid = document.getElementById('edit-category-grid');
+  grid.innerHTML = '';
+  CATEGORIES.forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn' + (cat.id === editCategory ? ' selected' : '');
+    btn.innerHTML = `<span class="emoji">${cat.emoji}</span><span>${cat.id}</span>`;
+    btn.onclick = () => {
+      editCategory = cat.id;
+      grid.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function updateEditUSD() {
+  const amt = parseFloat(document.getElementById('edit-amount').value) || 0;
+  document.getElementById('edit-usd-equiv').textContent = `≈ ${usd(amt)}`;
+}
+
+function openEditModal(id, from = 'history') {
+  // Don't open if item is swiped (user is deleting)
+  const el = document.getElementById('ei-' + id);
+  if (el && el.classList.contains('swiped')) return;
+
+  // Search history first, then favorites
+  const expense = currentExpenses.find(e => String(e.id) === String(id))
+    || favorites.find(f => String(f.id) === String(id));
+  if (!expense) return;
+
+  editOpenedFrom = from;
+
+  editingId = id;
+  editCategory = expense.category || CATEGORIES[0].id;
+
+  document.getElementById('edit-amount').value = expense.amount;
+  document.getElementById('edit-note').value = expense.note || '';
+  document.getElementById('edit-date').value = expense.date;
+  const toggle = document.getElementById('edit-recurring-toggle');
+  toggle.classList.toggle('on', !!expense.isRecurring);
+  updateEditUSD();
+  buildEditCategoryGrid();
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').classList.remove('show');
+  editingId = null;
+}
+
+async function saveEdit() {
+  const amount = parseFloat(document.getElementById('edit-amount').value);
+  if (!amount || amount <= 0) { showToast('Enter a valid amount', true); return; }
+  const payload = {
+    id: editingId,
+    amount,
+    category: editCategory,
+    note: document.getElementById('edit-note').value.trim(),
+    date: document.getElementById('edit-date').value,
+    isRecurring: document.getElementById('edit-recurring-toggle').classList.contains('on'),
+  };
+  try {
+    await api('edit_expense', payload);
+    showToast('Expense updated ✓');
+    closeEditModal();
+    if (editOpenedFrom === 'settings') {
+      await loadSettingsTab();
+    } else {
+      await loadHistory();
+    }
+  } catch {}
+}
+
+async function deleteFromEdit() {
+  if (!editingId) return;
+  const id = editingId;
+  closeEditModal();
+  await deleteExpense(id);
 }
 
 // ────────────────────────────────────────────────
@@ -1057,6 +1179,14 @@ async function loadSettingsTab() {
     favorites = res.favorites || [];
   } catch { favorites = []; }
   renderFavoritesManage();
+
+  // Recurring manage
+  let recurring = [];
+  try {
+    const res = await api('get_recurring');
+    recurring = res.recurring || [];
+  } catch {}
+  renderRecurringManage(recurring);
 }
 
 function renderFavoritesManage() {
@@ -1065,7 +1195,7 @@ function renderFavoritesManage() {
     el.innerHTML = `<div style="color:var(--text-secondary);font-size:14px;padding:8px 0">No favorites saved yet.</div>`;
     return;
   }
-  el.innerHTML = favorites.map((f, i) => {
+  el.innerHTML = favorites.map(f => {
     const cat = CAT_MAP[f.category] || CAT_MAP['Other'];
     return `<div class="fav-manage-item">
       <span style="font-size:24px">${cat.emoji}</span>
@@ -1073,8 +1203,47 @@ function renderFavoritesManage() {
         <div class="fav-manage-name">${f.favoriteName || f.category}</div>
         <div class="fav-manage-sub">${cat.id} · ${ils(f.amount)}${f.note ? ' · ' + f.note : ''}</div>
       </div>
+      <button class="icon-btn" onclick="deleteFavorite('${f.id}')">🗑</button>
     </div>`;
   }).join('');
+}
+
+function renderRecurringManage(recurring) {
+  const el = document.getElementById('recurring-manage-list');
+  if (!recurring.length) {
+    el.innerHTML = `<div style="color:var(--text-secondary);font-size:14px;padding:8px 0">No recurring expenses saved yet.</div>`;
+    return;
+  }
+  el.innerHTML = recurring.map(r => {
+    const cat = CAT_MAP[r.category] || CAT_MAP['Other'];
+    return `<div class="fav-manage-item">
+      <span style="font-size:24px">${cat.emoji}</span>
+      <div class="fav-manage-info">
+        <div class="fav-manage-name">${cat.id} · ${ils(r.amount)}</div>
+        <div class="fav-manage-sub">${r.note || 'No note'}</div>
+      </div>
+      <button class="icon-btn" style="margin-right:6px;background:var(--accent-muted);color:var(--accent);border:1px solid var(--accent)" onclick="openEditModal('${r.id}','settings')">✏️</button>
+      <button class="icon-btn" onclick="deleteRecurring('${r.id}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+
+async function deleteFavorite(id) {
+  try {
+    await api('delete_expense', { id });
+    showToast('Favorite deleted');
+    favorites = favorites.filter(f => String(f.id) !== String(id));
+    renderFavoritesManage();
+    renderFavoritesRow();
+  } catch {}
+}
+
+async function deleteRecurring(id) {
+  try {
+    await api('delete_expense', { id });
+    showToast('Recurring expense deleted');
+    await loadSettingsTab();
+  } catch {}
 }
 
 function saveUSDRate() {

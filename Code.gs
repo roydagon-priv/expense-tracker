@@ -273,6 +273,53 @@ function applyRecurring(params) {
   return { success: true, added, month: monthKey };
 }
 
+function deleteExpense(params) {
+  const { id } = params;
+  if (!id) return { error: 'Missing required param: id' };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+
+  for (const sheet of sheets) {
+    if (sheet.getName() === 'Budgets') continue;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][COL.ID - 1]) === String(id)) {
+        sheet.deleteRow(i + 1);
+        return { success: true, id };
+      }
+    }
+  }
+
+  return { error: `Expense not found: ${id}` };
+}
+
+function editExpense(params) {
+  const { id, date, amount, category, note, isRecurring, month } = params;
+  if (!id) return { error: 'Missing required param: id' };
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+
+  for (const sheet of sheets) {
+    if (sheet.getName() === 'Budgets') continue;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][COL.ID - 1]) === String(id)) {
+        const row = i + 1;
+        sheet.getRange(row, COL.DATE).setValue(date);
+        sheet.getRange(row, COL.AMOUNT).setValue(Number(amount));
+        sheet.getRange(row, COL.CATEGORY).setValue(category);
+        sheet.getRange(row, COL.NOTE).setValue(note || '');
+        sheet.getRange(row, COL.IS_RECURRING).setValue(isRecurring === true || isRecurring === 'true');
+        return { success: true, id };
+      }
+    }
+  }
+
+  return { error: `Expense not found: ${id}` };
+}
+
 function getBudgets() {
   const sheet = getOrCreateSheet('Budgets');
   const data = sheet.getDataRange().getValues();
@@ -328,6 +375,8 @@ function doPost(e) {
       case 'apply_recurring':result = applyRecurring(params); break;
       case 'get_budgets':    result = getBudgets();         break;
       case 'set_budget':     result = setBudget(params);    break;
+      case 'edit_expense':   result = editExpense(params);  break;
+      case 'delete_expense': result = deleteExpense(params); break;
       default:
         result = { error: `Unknown action: ${action}` };
     }

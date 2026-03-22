@@ -35,6 +35,7 @@ The Apps Script web app receives POST requests with a JSON body containing an `a
 | `get_budgets` | Return all rows from Budgets tab |
 | `set_budget` | Write a category + limit to Budgets tab |
 | `delete_expense` | Delete a row by `id` from the current month tab |
+| `edit_expense` | Update an existing row by `id` (date, amount, category, note, isRecurring) |
 
 All responses return JSON. All responses include CORS headers.
 
