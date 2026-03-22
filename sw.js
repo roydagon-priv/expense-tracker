@@ -1,5 +1,5 @@
 const CACHE_NAME = 'expense-tracker-v1';
-const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
+const STATIC_ASSETS = ['/expense-tracker/', '/expense-tracker/index.html', '/expense-tracker/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
