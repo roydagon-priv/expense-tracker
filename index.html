@@ -597,6 +597,16 @@
         <button class="btn btn-secondary" style="flex:1" onclick="window.print()">🖨 PDF</button>
       </div>
     </div>
+
+    <!-- API URL -->
+    <div class="settings-section">
+      <div class="settings-section-title">Backend</div>
+      <div class="field">
+        <div class="field-label">Apps Script URL</div>
+        <input type="text" id="api-url-input" placeholder="https://script.google.com/macros/s/…" autocomplete="off" spellcheck="false" style="font-family:'DM Mono',monospace;font-size:12px">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveApiUrl()" style="margin-top:8px">Save URL</button>
+    </div>
   </div>
 
   <!-- Bottom Nav -->
@@ -1157,6 +1167,7 @@ function changeMonth(delta) {
 // ────────────────────────────────────────────────
 async function loadSettingsTab() {
   document.getElementById('usd-rate-input').value = usdRate;
+  document.getElementById('api-url-input').value = apiUrl !== PLACEHOLDER_URL ? apiUrl : '';
 
   // Budget settings
   let budgetData = {};
@@ -1244,6 +1255,14 @@ async function deleteRecurring(id) {
     showToast('Recurring expense deleted');
     await loadSettingsTab();
   } catch {}
+}
+
+function saveApiUrl() {
+  const v = document.getElementById('api-url-input').value.trim();
+  if (!v.startsWith('https://')) { showToast('Please enter a valid URL', true); return; }
+  apiUrl = v;
+  localStorage.setItem('API_URL', apiUrl);
+  showToast('API URL saved ✓ — reload to reconnect');
 }
 
 function saveUSDRate() {
