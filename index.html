@@ -33,7 +33,8 @@
     --radius-sm: 8px;
 
     /* Category colors */
-    --cat-food: #fb923c;
+    --cat-groceries: #4ade80;
+    --cat-eating-out: #fb923c;
     --cat-transport: #60a5fa;
     --cat-shopping: #e879f9;
     --cat-health: #34d399;
@@ -345,6 +346,40 @@
   .totals-amount { font-size: 40px; font-weight: 300; font-family: 'DM Mono', monospace; color: var(--accent); }
   .totals-usd { font-size: 14px; color: var(--text-secondary); margin-top: 2px; font-family: 'DM Mono', monospace; }
 
+  .summary-card {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin: 8px 0; overflow: hidden;
+  }
+  .summary-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); }
+  .summary-row-right { display: flex; align-items: center; gap: 10px; }
+  .summary-row-amount { font-size: 22px; font-weight: 400; font-family: 'DM Mono', monospace; color: var(--text-primary); }
+  .summary-row-amount.income { color: #60a5fa; }
+  .summary-row-amount.positive { color: var(--accent); }
+  .summary-row-amount.negative { color: var(--accent-danger); }
+  .income-input-wrap { display: flex; align-items: center; gap: 6px; }
+  .income-input-wrap input {
+    background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+    color: #60a5fa; font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 400;
+    width: 140px; padding: 2px 8px; text-align: right; outline: none;
+  }
+  .income-input-wrap input:focus { border-color: #60a5fa; }
+  .income-edit-btn {
+    background: none; border: none; color: var(--text-secondary); font-size: 14px;
+    cursor: pointer; padding: 4px; line-height: 1; opacity: 0.7;
+  }
+  .income-edit-btn:hover { opacity: 1; color: var(--text-primary); }
+  .summary-subtext { font-size: 11px; color: var(--text-secondary); font-family: 'DM Mono', monospace; }
+  .summary-remaining-bar-wrap { padding: 0 20px 14px; }
+  .summary-remaining-bar-track { height: 4px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; }
+  .summary-remaining-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+  .summary-remaining-bar-fill.positive { background: var(--accent); }
+  .summary-remaining-bar-fill.negative { background: var(--accent-danger); }
+
   .budget-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
   .budget-row:last-child { border-bottom: none; }
   .budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -370,6 +405,18 @@
   .insight-up { border-left: 3px solid var(--accent-danger); }
   .insight-down { border-left: 3px solid var(--accent); }
   .insight-neutral { border-left: 3px solid var(--text-dim); }
+  .insight-info { border-left: 3px solid #60a5fa; }
+  .insight-warn { border-left: 3px solid var(--accent-warn); }
+  .insight-stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;
+  }
+  .insight-stat {
+    background: var(--bg-elevated); border-radius: var(--radius-sm);
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .insight-stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .insight-stat-value { font-size: 18px; font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text-primary); }
+  .insight-stat-sub { font-size: 11px; color: var(--text-secondary); }
 
   /* ── SETTINGS TAB ── */
   #tab-settings { padding: 0 16px 20px; }
@@ -438,7 +485,6 @@
     .month-selector-row { display: none !important; }
     body { background: white; color: black; font-size: 12px; }
     #tab-dashboard { display: block !important; padding: 0; }
-    .totals-amount { color: #16a34a; }
   }
 
   /* Divider */
@@ -532,11 +578,37 @@
       <button class="month-nav-btn" onclick="changeMonth(1)">›</button>
     </div>
 
-    <!-- Totals -->
-    <div class="totals-card">
-      <div class="totals-label">Total Spent</div>
-      <div class="totals-amount" id="dash-total">₪0</div>
-      <div class="totals-usd" id="dash-total-usd">≈ $0.00</div>
+    <!-- Monthly Summary -->
+    <div class="summary-card">
+      <div class="summary-row">
+        <div class="summary-row-label">Net Income</div>
+        <div class="summary-row-right">
+          <div class="income-input-wrap">
+            <span style="font-family:'DM Mono',monospace;font-size:22px;color:#60a5fa">₪</span>
+            <input type="number" id="income-input" min="0" step="100" placeholder="0" oninput="onIncomeChange()">
+          </div>
+          <button class="income-edit-btn" title="Clear" onclick="clearIncome()">✕</button>
+        </div>
+      </div>
+      <div class="summary-row">
+        <div class="summary-row-label">Spent</div>
+        <div class="summary-row-right">
+          <span class="summary-row-amount" id="dash-total">₪0</span>
+          <span class="summary-subtext" id="dash-total-usd">≈ $0.00</span>
+        </div>
+      </div>
+      <div class="summary-row">
+        <div class="summary-row-label">Remaining</div>
+        <div class="summary-row-right">
+          <span class="summary-row-amount positive" id="dash-remaining">—</span>
+          <span class="summary-subtext" id="dash-remaining-usd"></span>
+        </div>
+      </div>
+      <div class="summary-remaining-bar-wrap" id="dash-remaining-bar-wrap" style="display:none">
+        <div class="summary-remaining-bar-track">
+          <div class="summary-remaining-bar-fill positive" id="dash-remaining-bar" style="width:0%"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Category breakdown -->
@@ -548,6 +620,12 @@
     <!-- Insights -->
     <div class="card card-padded" style="margin:8px 0">
       <div class="field-label" style="margin-bottom:12px">Insights</div>
+      <div id="analytics-list"></div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="card card-padded" style="margin:8px 0">
+      <div class="field-label" style="margin-bottom:12px">Alerts</div>
       <div id="insights-list"></div>
     </div>
 
@@ -565,7 +643,7 @@
       <div class="settings-section-title">Exchange Rate</div>
       <div class="settings-row">
         <span class="settings-row-label">USD Rate (₪ per $1)</span>
-        <input type="number" id="usd-rate-input" value="3.70" step="0.01" min="0.01" onchange="saveUSDRate()">
+        <input type="number" id="usd-rate-input" value="3.10" step="0.01" min="0.01" onchange="saveUSDRate()">
       </div>
     </div>
 
@@ -685,7 +763,8 @@
 const PLACEHOLDER_URL = 'YOUR_APPS_SCRIPT_URL';
 
 const CATEGORIES = [
-  { id: 'Food',          emoji: '🍔', color: '#fb923c' },
+  { id: 'Groceries',     emoji: '🛒', color: '#4ade80' },
+  { id: 'Eating Out',    emoji: '🍔', color: '#fb923c' },
   { id: 'Transport',     emoji: '🚌', color: '#60a5fa' },
   { id: 'Shopping',      emoji: '🛍', color: '#e879f9' },
   { id: 'Health',        emoji: '💊', color: '#34d399' },
@@ -699,22 +778,25 @@ const CAT_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
 // STATE
 // ────────────────────────────────────────────────
 let apiUrl = localStorage.getItem('API_URL') || PLACEHOLDER_URL;
-let usdRate = parseFloat(localStorage.getItem('USD_RATE') || '3.70');
+let usdRate = parseFloat(localStorage.getItem('USD_RATE') || '3.10');
 let selectedMonth = localStorage.getItem('SELECTED_MONTH') || todayYM();
 let selectedCategory = CATEGORIES[0].id;
 let currentExpenses = [];
 let currentSummary = {};
 let budgets = {};
 let favorites = [];
+let lastDashTotal = 0;
 
 // ────────────────────────────────────────────────
 // UTILS
 // ────────────────────────────────────────────────
 function todayYMD() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function todayYM() {
-  return new Date().toISOString().slice(0, 7);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 function formatYM(ym) {
   const [y, m] = ym.split('-');
@@ -974,7 +1056,8 @@ function renderHistory() {
   });
 }
 
-async function deleteExpense(id) {
+async function deleteExpense(id, skipConfirm = false) {
+  if (!skipConfirm && !confirm('Delete this expense?')) return;
   const el = document.getElementById('ei-' + id);
   if (el) el.style.opacity = '0.4';
   try {
@@ -1067,29 +1150,76 @@ async function saveEdit() {
 
 async function deleteFromEdit() {
   if (!editingId) return;
+  if (!confirm('Delete this expense?')) return;
   const id = editingId;
   closeEditModal();
-  await deleteExpense(id);
+  await deleteExpense(id, true); // true = skip confirm (already confirmed above)
 }
 
 // ────────────────────────────────────────────────
 // DASHBOARD TAB
 // ────────────────────────────────────────────────
+function renderRemaining(total) {
+  const income = parseFloat(document.getElementById('income-input').value) || 0;
+  const remainingEl = document.getElementById('dash-remaining');
+  const remainingUsdEl = document.getElementById('dash-remaining-usd');
+  const barWrap = document.getElementById('dash-remaining-bar-wrap');
+  const bar = document.getElementById('dash-remaining-bar');
+
+  if (!income) {
+    remainingEl.textContent = '—';
+    remainingEl.className = 'summary-row-amount';
+    remainingUsdEl.textContent = '';
+    barWrap.style.display = 'none';
+    return;
+  }
+
+  const remaining = income - total;
+  const isPositive = remaining >= 0;
+  remainingEl.textContent = ils(Math.abs(remaining));
+  remainingEl.className = `summary-row-amount ${isPositive ? 'positive' : 'negative'}`;
+  remainingUsdEl.textContent = `${isPositive ? '≈' : '-'} ${usd(Math.abs(remaining))}`;
+
+  // Bar shows how much of income has been spent (capped at 100%)
+  const spentPct = Math.min(100, income > 0 ? (total / income) * 100 : 0);
+  bar.style.width = `${spentPct}%`;
+  bar.className = `summary-remaining-bar-fill ${isPositive ? 'positive' : 'negative'}`;
+  barWrap.style.display = 'block';
+}
+
+function onIncomeChange() {
+  const raw = parseFloat(document.getElementById('income-input').value);
+  if (raw < 0) {
+    document.getElementById('income-input').value = '';
+    return;
+  }
+  localStorage.setItem(`INCOME_${selectedMonth}`, document.getElementById('income-input').value);
+  renderRemaining(lastDashTotal);
+}
+
+function clearIncome() {
+  document.getElementById('income-input').value = '';
+  localStorage.removeItem(`INCOME_${selectedMonth}`);
+  renderRemaining(0);
+}
+
 async function loadDashboard() {
   document.getElementById('current-month-label').textContent = formatYM(selectedMonth);
   localStorage.setItem('SELECTED_MONTH', selectedMonth);
 
-  let summary = {}, budgetData = {}, prevSummary = {};
+  let summary = {}, budgetData = {}, prevSummary = {}, expenses = [];
   try {
-    const [sumRes, budRes] = await Promise.all([
+    const [sumRes, budRes, expRes] = await Promise.all([
       api('get_summary', { month: selectedMonth }),
       api('get_budgets'),
+      api('get_expenses', { month: selectedMonth }),
     ]);
     summary = sumRes.summary || {};
     budgetData = Object.fromEntries((budRes.budgets || []).map(b => [b.category, +b.monthlyLimit]));
     budgets = budgetData;
+    expenses = expRes.expenses || [];
 
-    // Previous month for insights
+    // Previous month for alerts
     const [y, m] = selectedMonth.split('-').map(Number);
     const prevMonth = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
     const prevRes = await api('get_summary', { month: prevMonth });
@@ -1098,8 +1228,15 @@ async function loadDashboard() {
 
   // Totals
   const total = Object.values(summary).reduce((s, v) => s + +v, 0);
+  lastDashTotal = total;
   document.getElementById('dash-total').textContent = ils(total);
   document.getElementById('dash-total-usd').textContent = `≈ ${usd(total)}`;
+
+  // Income & remaining
+  const savedIncome = localStorage.getItem(`INCOME_${selectedMonth}`);
+  const incomeInput = document.getElementById('income-input');
+  incomeInput.value = savedIncome || '';
+  renderRemaining(total);
 
   // Category bars
   const barsEl = document.getElementById('category-bars');
@@ -1126,7 +1263,89 @@ async function loadDashboard() {
     }).join('');
   }
 
-  // Insights
+  // Analytics insights
+  const analyticsEl = document.getElementById('analytics-list');
+  if (!expenses.length) {
+    analyticsEl.innerHTML = `<div class="insight-item insight-neutral"><span class="insight-icon">📊</span><span class="insight-text">No data yet — add some expenses to see insights.</span></div>`;
+  } else {
+    const [selY, selM] = selectedMonth.split('-').map(Number);
+    const today = new Date();
+    const isCurrentMonth = selY === today.getFullYear() && selM === (today.getMonth() + 1);
+    const daysInMonth = new Date(selY, selM, 0).getDate();
+    // Days elapsed: for current month use today's date, for past months use full month
+    const daysElapsed = isCurrentMonth ? today.getDate() : daysInMonth;
+
+    const total = Object.values(summary).reduce((s, v) => s + +v, 0);
+    const dailyAvg = daysElapsed > 0 ? total / daysElapsed : 0;
+
+    // Biggest single expense
+    const biggest = expenses.reduce((max, e) => +e.amount > +max.amount ? e : max, expenses[0]);
+    const biggestCat = CATEGORIES.find(c => c.id === biggest.category) || { emoji: '📦' };
+
+    // Top category by spending
+    const topCatId = Object.keys(summary).reduce((a, b) => +summary[a] > +summary[b] ? a : b, Object.keys(summary)[0]);
+    const topCat = CATEGORIES.find(c => c.id === topCatId) || { emoji: '📦', id: topCatId };
+    const topCatPct = total > 0 ? Math.round((+summary[topCatId] / total) * 100) : 0;
+
+    // Busiest day (most total spending)
+    const byDay = {};
+    expenses.forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + +e.amount; });
+    const busiestDay = Object.keys(byDay).reduce((a, b) => byDay[a] > byDay[b] ? a : b, Object.keys(byDay)[0]);
+    const busiestDayTotal = byDay[busiestDay];
+    const busiestDayLabel = new Date(busiestDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+    // Spending pace vs expected (only meaningful for current month)
+    let paceHtml = '';
+    if (isCurrentMonth && daysElapsed > 0) {
+      const projected = dailyAvg * daysInMonth;
+      const prevTotal = Object.values(prevSummary).reduce((s, v) => s + +v, 0);
+      const daysRemainingLabel = daysInMonth - daysElapsed;
+      const paceIcon = projected > total * 1.1 ? '📈' : '✅';
+      const paceCls = projected > total * 1.1 ? 'insight-warn' : 'insight-info';
+      paceHtml = `<div class="insight-item ${paceCls}">
+        <span class="insight-icon">${paceIcon}</span>
+        <span class="insight-text">Projected month-end: <strong>${ils(Math.round(projected))}</strong>${prevTotal > 0 ? ` (last month: ${ils(Math.round(prevTotal))})` : ''}. ${daysRemainingLabel} days left.</span>
+      </div>`;
+
+      // Spending pace: ahead or behind expected rate
+      if (prevTotal > 0) {
+        const expectedByNow = prevTotal * (daysElapsed / daysInMonth);
+        const paceRatio = total / expectedByNow;
+        if (paceRatio > 1.15) {
+          paceHtml += `<div class="insight-item insight-warn"><span class="insight-icon">⚡</span><span class="insight-text">Spending <strong>${Math.round((paceRatio - 1) * 100)}% faster</strong> than your typical pace for this point in the month.</span></div>`;
+        } else if (paceRatio < 0.85) {
+          paceHtml += `<div class="insight-item insight-info"><span class="insight-icon">🐢</span><span class="insight-text">Spending <strong>${Math.round((1 - paceRatio) * 100)}% slower</strong> than your typical pace — you're ahead of budget.</span></div>`;
+        }
+      }
+    }
+
+    analyticsEl.innerHTML = `
+      <div class="insight-stat-grid">
+        <div class="insight-stat">
+          <div class="insight-stat-label">Daily Average</div>
+          <div class="insight-stat-value">${ils(Math.round(dailyAvg))}</div>
+          <div class="insight-stat-sub">over ${daysElapsed} day${daysElapsed !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="insight-stat">
+          <div class="insight-stat-label">Top Category</div>
+          <div class="insight-stat-value">${topCat.emoji} ${topCatPct}%</div>
+          <div class="insight-stat-sub">${topCat.id} · ${ils(+summary[topCatId])}</div>
+        </div>
+        <div class="insight-stat">
+          <div class="insight-stat-label">Biggest Expense</div>
+          <div class="insight-stat-value">${ils(+biggest.amount)}</div>
+          <div class="insight-stat-sub">${biggestCat.emoji} ${biggest.category}${biggest.note ? ' · ' + biggest.note : ''}</div>
+        </div>
+        <div class="insight-stat">
+          <div class="insight-stat-label">Busiest Day</div>
+          <div class="insight-stat-value">${busiestDayLabel}</div>
+          <div class="insight-stat-sub">${ils(Math.round(busiestDayTotal))} spent</div>
+        </div>
+      </div>
+      ${paceHtml}
+    `;
+  }
+
   const insightsEl = document.getElementById('insights-list');
   const insightItems = [];
   CATEGORIES.forEach(cat => {
@@ -1158,7 +1377,9 @@ async function loadDashboard() {
 function changeMonth(delta) {
   const [y, m] = selectedMonth.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
-  selectedMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  if (next > todayYM()) return;
+  selectedMonth = next;
   loadDashboard();
 }
 
@@ -1181,7 +1402,7 @@ async function loadSettingsTab() {
   list.innerHTML = CATEGORIES.map(cat => `
     <div class="settings-row">
       <span class="settings-row-label">${cat.emoji} ${cat.id}</span>
-      <input type="number" id="budget-${cat.id}" value="${budgetData[cat.id] || ''}" placeholder="—" min="0" step="10">
+      <input type="number" id="budget-${cat.id.replace(/\s+/g, '-')}" value="${budgetData[cat.id] || ''}" placeholder="—" min="0" step="10">
     </div>`).join('');
 
   // Favorites manage
@@ -1277,10 +1498,10 @@ function saveUSDRate() {
 async function saveBudgets() {
   const entries = CATEGORIES.map(cat => ({
     category: cat.id,
-    limit: parseFloat(document.getElementById('budget-' + cat.id)?.value) || 0,
+    limit: parseFloat(document.getElementById('budget-' + cat.id.replace(/\s+/g, '-'))?.value) || 0,
   })).filter(e => e.limit > 0);
   try {
-    await Promise.all(entries.map(e => api('set_budget', { category: e.category, limit: e.limit })));
+    await Promise.all(entries.map(e => api('set_budget', { category: e.category, monthlyLimit: e.limit })));
     showToast('Budgets saved ✓');
   } catch {}
 }
@@ -1296,13 +1517,11 @@ async function applyRecurring() {
 // EXPORT CSV
 // ────────────────────────────────────────────────
 async function exportCSV() {
-  let expenses = currentExpenses;
-  if (!expenses.length) {
-    try {
-      const res = await api('get_expenses', { month: selectedMonth });
-      expenses = res.expenses || [];
-    } catch { return; }
-  }
+  let expenses = [];
+  try {
+    const res = await api('get_expenses', { month: selectedMonth });
+    expenses = res.expenses || [];
+  } catch { return; }
   if (!expenses.length) { showToast('No expenses to export', true); return; }
   const header = 'Date,Category,Amount (ILS),Amount (USD),Note';
   const rows = expenses.map(e =>

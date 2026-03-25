@@ -2,7 +2,7 @@
 // Mobile Expense Tracker — Google Apps Script Backend
 // ============================================================
 
-const CATEGORIES = ['Food', 'Transport', 'Shopping', 'Health', 'Entertainment', 'Bills', 'Other'];
+const CATEGORIES = ['Groceries', 'Eating Out', 'Transport', 'Shopping', 'Health', 'Entertainment', 'Bills', 'Other'];
 
 const COL = {
   ID: 1,
@@ -121,7 +121,10 @@ function getExpenses(params) {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return { expenses: [], month };
 
-  const expenses = data.slice(1).map(rowToExpense);
+  // Exclude favorite template rows (created by addFavorite, not real expenses)
+  const expenses = data.slice(1)
+    .map(rowToExpense)
+    .filter(e => !(e.isFavorite && !e.isRecurring));
   return { expenses, month };
 }
 
@@ -137,6 +140,10 @@ function getSummary(params) {
   CATEGORIES.forEach(c => { summary[c] = 0; });
 
   data.slice(1).forEach(row => {
+    const isFavorite = row[COL.IS_FAVORITE - 1] === true || row[COL.IS_FAVORITE - 1] === 'TRUE';
+    const isRecurring = row[COL.IS_RECURRING - 1] === true || row[COL.IS_RECURRING - 1] === 'TRUE';
+    // Skip favorite template rows (not real expenses)
+    if (isFavorite && !isRecurring) return;
     const category = row[COL.CATEGORY - 1];
     const amount = Number(row[COL.AMOUNT - 1]) || 0;
     if (summary[category] !== undefined) {
@@ -323,13 +330,13 @@ function editExpense(params) {
 function getBudgets() {
   const sheet = getOrCreateSheet('Budgets');
   const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return { budgets: {} };
+  if (data.length <= 1) return { budgets: [] };
 
-  const budgets = {};
+  const budgets = [];
   data.slice(1).forEach(row => {
     const category = row[BUDGET_COL.CATEGORY - 1];
     const limit = row[BUDGET_COL.MONTHLY_LIMIT - 1];
-    if (category) budgets[category] = Number(limit) || 0;
+    if (category) budgets.push({ category, monthlyLimit: Number(limit) || 0 });
   });
 
   return { budgets };
