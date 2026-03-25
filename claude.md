@@ -34,7 +34,8 @@ The Apps Script web app receives POST requests with a JSON body containing an `a
 | `get_recurring` | Return rows where IsRecurring = true |
 | `apply_recurring` | Copy recurring rows into current month if not already present |
 | `get_budgets` | Return array of `{ category, monthlyLimit }` from Budgets tab |
-| `set_budget` | Write `{ category, monthlyLimit }` to Budgets tab |
+| `set_budget` | Upsert a single `{ category, monthlyLimit }` row in Budgets tab |
+| `set_budgets` | Atomically rewrite all budgets — clears sheet and rewrites from `{ budgets: [{category, monthlyLimit}] }` |
 | `delete_expense` | Delete a row by `id` (searches all month sheets) |
 | `edit_expense` | Update an existing row by `id` (date, amount, category, note, isRecurring) |
 
@@ -43,6 +44,7 @@ All responses return JSON. All responses include CORS headers.
 ### Important API notes
 - `get_budgets` returns `{ budgets: [{ category, monthlyLimit }] }` — an **array**, not an object map.
 - `set_budget` requires `{ category, monthlyLimit }` — the key is `monthlyLimit`, not `limit`.
+- **Always use `set_budgets` (bulk) instead of multiple parallel `set_budget` calls.** Parallel calls cause race conditions and duplicate rows in the sheet. `set_budgets` clears and rewrites atomically.
 - `get_expenses` and `get_summary` **exclude** rows where `isFavorite=true && isRecurring=false` (these are favorite templates, not real expenses).
 - Favorite templates are stored as rows in the month sheet with `isFavorite=true, isRecurring=false`. They are retrieved via `get_favorites` and excluded from expense/summary queries.
 
@@ -75,8 +77,8 @@ The UI has a **bottom navigation bar** with 4 tabs:
    - Spent (total for month + USD equivalent)
    - Remaining (Income − Spent, green/red, with a progress bar). Hidden when no income is set.
 3. **By Category** — progress bars per category, spent vs budget.
-4. **Insights** — analytical metrics: daily average, top category %, biggest single expense, busiest day, spending pace/projection (current month only).
-5. **Alerts** — month-over-month change warnings (>20% up/down) and over-budget alerts.
+4. **Insights** — analytical metrics: donut pie chart (spending by category), daily average, biggest single expense (excl. Bills), busiest day (excl. Bills), spending pace/projection (current month only).
+5. **Alerts** — month-over-month change warnings (>20% up/down, excl. Bills), over-budget alerts, and budget pace warnings (projected to exceed by end of month).
 6. **Export buttons** — CSV and Print.
 
 ### Key UI Rules
@@ -95,6 +97,19 @@ USD_RATE           # Exchange rate for ILS → USD (default: 3.10)
 SELECTED_MONTH     # Currently viewed month on Dashboard (YYYY-MM)
 INCOME_YYYY-MM     # Net income for a given month (one key per month, e.g. INCOME_2026-03)
 ```
+
+## Caching Layer
+
+All API responses are cached in `_cache` (keyed by `action:month`). A `_dirty` set tracks stale keys. Helper functions:
+
+- `cachedApi(action, payload)` — returns cached data if clean; fetches and caches otherwise.
+- `invalidateExpenseCache(month)` — marks expense/summary data for a month (and its neighbors) as stale.
+- `invalidateBudgetCache()` — marks budget data as stale.
+- `invalidateCache(...keys)` — generic invalidation.
+
+**Pattern for tab loading:** render immediately from cache if available, then re-fetch in background if any key is dirty or missing. This avoids blank screens on tab switch.
+
+Mutations (add, edit, delete expense; save favorites/recurring; save budgets) must call the appropriate invalidation function so the next tab open re-fetches fresh data.
 
 ## Code Style
 - Use `async/await` for all API calls, never raw `.then()` chains

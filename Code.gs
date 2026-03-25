@@ -364,6 +364,31 @@ function setBudget(params) {
   return { success: true, category, monthlyLimit: Number(monthlyLimit) };
 }
 
+function setBudgets(params) {
+  // Atomically rewrite all budgets, eliminating duplicates.
+  const { budgets } = params;
+  if (!Array.isArray(budgets)) {
+    return { error: 'Missing required field: budgets (array)' };
+  }
+
+  const sheet = getOrCreateSheet('Budgets');
+
+  // Clear all data rows, keep header
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.deleteRows(2, lastRow - 1);
+  }
+
+  // Write all entries in one batch
+  const entries = budgets.filter(b => b.category && Number(b.monthlyLimit) > 0);
+  if (entries.length > 0) {
+    const rows = entries.map(b => [b.category, Number(b.monthlyLimit)]);
+    sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+  }
+
+  return { success: true, count: entries.length };
+}
+
 // ─── Entry Points ────────────────────────────────────────────
 
 function doPost(e) {
@@ -382,6 +407,7 @@ function doPost(e) {
       case 'apply_recurring':result = applyRecurring(params); break;
       case 'get_budgets':    result = getBudgets();         break;
       case 'set_budget':     result = setBudget(params);    break;
+      case 'set_budgets':    result = setBudgets(params);   break;
       case 'edit_expense':   result = editExpense(params);  break;
       case 'delete_expense': result = deleteExpense(params); break;
       default:

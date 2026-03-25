@@ -408,7 +408,7 @@
   .insight-info { border-left: 3px solid #60a5fa; }
   .insight-warn { border-left: 3px solid var(--accent-warn); }
   .insight-stat-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;
   }
   .insight-stat {
     background: var(--bg-elevated); border-radius: var(--radius-sm);
@@ -417,6 +417,26 @@
   .insight-stat-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
   .insight-stat-value { font-size: 18px; font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text-primary); }
   .insight-stat-sub { font-size: 11px; color: var(--text-secondary); }
+  .insight-pie-card {
+    background: var(--bg-elevated); border-radius: var(--radius-sm);
+    padding: 14px; margin-bottom: 8px;
+  }
+  .insight-pie-card .insight-stat-label { margin-bottom: 12px; display: block; }
+  .insight-pie-inner {
+    display: flex; align-items: center; gap: 16px;
+  }
+  .insight-pie-svg { flex-shrink: 0; }
+  .insight-pie-legend {
+    display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0;
+  }
+  .pie-legend-item {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-primary);
+  }
+  .pie-legend-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .pie-legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+  .pie-legend-pct { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; }
 
   /* ── SETTINGS TAB ── */
   #tab-settings { padding: 0 16px 20px; }
@@ -788,6 +808,50 @@ let favorites = [];
 let lastDashTotal = 0;
 
 // ────────────────────────────────────────────────
+// CACHE
+// ────────────────────────────────────────────────
+// Keyed by `action:month` (month omitted for global calls like get_budgets).
+// dirty = true means stale — re-fetch next time the tab is opened.
+const _cache = {};
+const _dirty = new Set();
+
+function cacheKey(action, month = '') { return month ? `${action}:${month}` : action; }
+
+async function cachedApi(action, payload = {}) {
+  const key = cacheKey(action, payload.month || '');
+  if (!_dirty.has(key) && _cache[key] !== undefined) return _cache[key];
+  const data = await api(action, payload);
+  _cache[key] = data;
+  _dirty.delete(key);
+  return data;
+}
+
+// Call after any mutation that affects expense/summary/budget/favorites data.
+function invalidateCache(...actions) {
+  // If no specific actions given, invalidate everything
+  const keys = actions.length ? actions : Object.keys(_cache);
+  keys.forEach(k => _dirty.add(k));
+}
+
+// Invalidate all expense+summary data for a given month (and global lists).
+function invalidateExpenseCache(month) {
+  invalidateCache(
+    cacheKey('get_expenses', month),
+    cacheKey('get_summary', month),
+    cacheKey('get_favorites'),
+    cacheKey('get_recurring'),
+  );
+  // Also invalidate adjacent months since prev-month summary is used in dashboard
+  const [y, m] = month.split('-').map(Number);
+  const nextM = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  invalidateCache(cacheKey('get_summary', nextM));
+}
+
+function invalidateBudgetCache() {
+  invalidateCache(cacheKey('get_budgets'));
+}
+
+// ────────────────────────────────────────────────
 // UTILS
 // ────────────────────────────────────────────────
 function todayYMD() {
@@ -931,6 +995,7 @@ async function submitExpense() {
   };
   try {
     await api('add_expense', payload);
+    invalidateExpenseCache(payload.date.slice(0, 7));
     showToast('Expense added ✓');
     resetForm();
   } catch {}
@@ -939,7 +1004,7 @@ async function submitExpense() {
 // Favorites
 async function loadFavorites() {
   try {
-    const data = await api('get_favorites');
+    const data = await cachedApi('get_favorites');
     favorites = data.favorites || [];
   } catch { favorites = []; }
   renderFavoritesRow();
@@ -989,6 +1054,7 @@ async function saveFavorite() {
   };
   try {
     await api('add_favorite', payload);
+    invalidateCache(cacheKey('get_favorites'));
     showToast('Favorite saved ✓');
     closeFavModal();
     document.getElementById('fav-name-input').value = '';
@@ -1000,12 +1066,20 @@ async function saveFavorite() {
 // HISTORY TAB
 // ────────────────────────────────────────────────
 async function loadHistory() {
-  try {
-    const thisMonth = todayYM();
-    const data = await api('get_expenses', { month: thisMonth });
-    currentExpenses = data.expenses || [];
-  } catch { currentExpenses = []; }
-  renderHistory();
+  const thisMonth = todayYM();
+  // Render from cache immediately if available, then refresh in background if stale
+  const key = cacheKey('get_expenses', thisMonth);
+  if (_cache[key] !== undefined) {
+    currentExpenses = _cache[key].expenses || [];
+    renderHistory();
+  }
+  if (_dirty.has(key) || _cache[key] === undefined) {
+    try {
+      const data = await cachedApi('get_expenses', { month: thisMonth });
+      currentExpenses = data.expenses || [];
+      renderHistory();
+    } catch { if (!_cache[key]) currentExpenses = []; renderHistory(); }
+  }
 }
 
 function renderHistory() {
@@ -1062,6 +1136,7 @@ async function deleteExpense(id, skipConfirm = false) {
   if (el) el.style.opacity = '0.4';
   try {
     await api('delete_expense', { id });
+    invalidateExpenseCache(todayYM());
     showToast('Expense deleted');
     await loadHistory();
   } catch {
@@ -1138,6 +1213,7 @@ async function saveEdit() {
   };
   try {
     await api('edit_expense', payload);
+    invalidateExpenseCache(payload.date.slice(0, 7));
     showToast('Expense updated ✓');
     closeEditModal();
     if (editOpenedFrom === 'settings') {
@@ -1207,25 +1283,48 @@ async function loadDashboard() {
   document.getElementById('current-month-label').textContent = formatYM(selectedMonth);
   localStorage.setItem('SELECTED_MONTH', selectedMonth);
 
+  const [y, m] = selectedMonth.split('-').map(Number);
+  const prevMonth = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+
   let summary = {}, budgetData = {}, prevSummary = {}, expenses = [];
-  try {
-    const [sumRes, budRes, expRes] = await Promise.all([
-      api('get_summary', { month: selectedMonth }),
-      api('get_budgets'),
-      api('get_expenses', { month: selectedMonth }),
-    ]);
-    summary = sumRes.summary || {};
-    budgetData = Object.fromEntries((budRes.budgets || []).map(b => [b.category, +b.monthlyLimit]));
-    budgets = budgetData;
-    expenses = expRes.expenses || [];
 
-    // Previous month for alerts
-    const [y, m] = selectedMonth.split('-').map(Number);
-    const prevMonth = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
-    const prevRes = await api('get_summary', { month: prevMonth });
+  // Render from cache immediately if all keys are available
+  const keySummary  = cacheKey('get_summary', selectedMonth);
+  const keyBudgets  = cacheKey('get_budgets');
+  const keyExpenses = cacheKey('get_expenses', selectedMonth);
+  const keyPrev     = cacheKey('get_summary', prevMonth);
+  const allCached   = [keySummary, keyBudgets, keyExpenses, keyPrev].every(k => _cache[k] !== undefined);
+  const anyDirty    = [keySummary, keyBudgets, keyExpenses, keyPrev].some(k => _dirty.has(k));
+
+  function applyDashData(sumRes, budRes, expRes, prevRes) {
+    summary     = sumRes.summary || {};
+    budgetData  = Object.fromEntries((budRes.budgets || []).map(b => [b.category, +b.monthlyLimit]));
+    budgets     = budgetData;
+    expenses    = expRes.expenses || [];
     prevSummary = prevRes.summary || {};
-  } catch {}
+  }
 
+  if (allCached) {
+    applyDashData(_cache[keySummary], _cache[keyBudgets], _cache[keyExpenses], _cache[keyPrev]);
+    renderDashboard(summary, budgetData, expenses, prevSummary);
+  }
+
+  if (!allCached || anyDirty) {
+    try {
+      const [sumRes, budRes, expRes, prevRes] = await Promise.all([
+        cachedApi('get_summary',  { month: selectedMonth }),
+        cachedApi('get_budgets'),
+        cachedApi('get_expenses', { month: selectedMonth }),
+        cachedApi('get_summary',  { month: prevMonth }),
+      ]);
+      applyDashData(sumRes, budRes, expRes, prevRes);
+      renderDashboard(summary, budgetData, expenses, prevSummary);
+    } catch {}
+  }
+
+}
+
+function renderDashboard(summary, budgetData, expenses, prevSummary) {
   // Totals
   const total = Object.values(summary).reduce((s, v) => s + +v, 0);
   lastDashTotal = total;
@@ -1278,8 +1377,10 @@ async function loadDashboard() {
     const total = Object.values(summary).reduce((s, v) => s + +v, 0);
     const dailyAvg = daysElapsed > 0 ? total / daysElapsed : 0;
 
-    // Biggest single expense
-    const biggest = expenses.reduce((max, e) => +e.amount > +max.amount ? e : max, expenses[0]);
+    // Biggest single expense (excluding Bills)
+    const nonBillExpenses = expenses.filter(e => e.category !== 'Bills');
+    const biggestPool = nonBillExpenses.length ? nonBillExpenses : expenses;
+    const biggest = biggestPool.reduce((max, e) => +e.amount > +max.amount ? e : max, biggestPool[0]);
     const biggestCat = CATEGORIES.find(c => c.id === biggest.category) || { emoji: '📦' };
 
     // Top category by spending
@@ -1287,12 +1388,16 @@ async function loadDashboard() {
     const topCat = CATEGORIES.find(c => c.id === topCatId) || { emoji: '📦', id: topCatId };
     const topCatPct = total > 0 ? Math.round((+summary[topCatId] / total) * 100) : 0;
 
-    // Busiest day (most total spending)
+    // Busiest day (most total spending, excluding Bills)
     const byDay = {};
-    expenses.forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + +e.amount; });
-    const busiestDay = Object.keys(byDay).reduce((a, b) => byDay[a] > byDay[b] ? a : b, Object.keys(byDay)[0]);
-    const busiestDayTotal = byDay[busiestDay];
-    const busiestDayLabel = new Date(busiestDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    expenses.filter(e => e.category !== 'Bills').forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + +e.amount; });
+    const busiestDay = Object.keys(byDay).length
+      ? Object.keys(byDay).reduce((a, b) => byDay[a] > byDay[b] ? a : b, Object.keys(byDay)[0])
+      : null;
+    const busiestDayTotal = busiestDay ? byDay[busiestDay] : 0;
+    const busiestDayLabel = busiestDay
+      ? new Date(busiestDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+      : '—';
 
     // Spending pace vs expected (only meaningful for current month)
     let paceHtml = '';
@@ -1319,7 +1424,55 @@ async function loadDashboard() {
       }
     }
 
+    // Build pie chart SVG for category breakdown
+    const pieSlices = CATEGORIES
+      .filter(cat => summary[cat.id] && +summary[cat.id] > 0)
+      .map(cat => ({ cat, amount: +summary[cat.id], pct: total > 0 ? +summary[cat.id] / total : 0 }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const PIE_R = 54, PIE_CX = 60, PIE_CY = 60;
+    let piePathsHtml = '';
+    let legendHtml = '';
+    if (pieSlices.length === 1) {
+      // Single slice — draw full circle
+      const s = pieSlices[0];
+      piePathsHtml = `<circle cx="${PIE_CX}" cy="${PIE_CY}" r="${PIE_R}" fill="${s.cat.color}" />`;
+    } else {
+      let startAngle = -Math.PI / 2;
+      pieSlices.forEach(s => {
+        const angle = s.pct * 2 * Math.PI;
+        const endAngle = startAngle + angle;
+        const x1 = PIE_CX + PIE_R * Math.cos(startAngle);
+        const y1 = PIE_CY + PIE_R * Math.sin(startAngle);
+        const x2 = PIE_CX + PIE_R * Math.cos(endAngle);
+        const y2 = PIE_CY + PIE_R * Math.sin(endAngle);
+        const largeArc = angle > Math.PI ? 1 : 0;
+        piePathsHtml += `<path d="M${PIE_CX},${PIE_CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${PIE_R},${PIE_R} 0 ${largeArc},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${s.cat.color}" />`;
+        startAngle = endAngle;
+      });
+    }
+    // Donut hole
+    piePathsHtml += `<circle cx="${PIE_CX}" cy="${PIE_CY}" r="28" fill="var(--bg-elevated)" />`;
+    // Center label: top category pct
+    piePathsHtml += `<text x="${PIE_CX}" y="${PIE_CY - 4}" text-anchor="middle" fill="var(--text-primary)" font-size="13" font-family="DM Mono" font-weight="500">${topCatPct}%</text>`;
+    piePathsHtml += `<text x="${PIE_CX}" y="${PIE_CY + 10}" text-anchor="middle" fill="var(--text-secondary)" font-size="8" font-family="DM Sans">${topCat.emoji}</text>`;
+
+    legendHtml = pieSlices.map(s =>
+      `<div class="pie-legend-item">
+        <span class="pie-legend-dot" style="background:${s.cat.color}"></span>
+        <span class="pie-legend-name">${s.cat.emoji} ${s.cat.id}</span>
+        <span class="pie-legend-pct">${Math.round(s.pct * 100)}%</span>
+      </div>`
+    ).join('');
+
     analyticsEl.innerHTML = `
+      <div class="insight-pie-card">
+        <span class="insight-stat-label">Spending by Category</span>
+        <div class="insight-pie-inner">
+          <svg class="insight-pie-svg" width="120" height="120" viewBox="0 0 120 120">${piePathsHtml}</svg>
+          <div class="insight-pie-legend">${legendHtml}</div>
+        </div>
+      </div>
       <div class="insight-stat-grid">
         <div class="insight-stat">
           <div class="insight-stat-label">Daily Average</div>
@@ -1327,19 +1480,14 @@ async function loadDashboard() {
           <div class="insight-stat-sub">over ${daysElapsed} day${daysElapsed !== 1 ? 's' : ''}</div>
         </div>
         <div class="insight-stat">
-          <div class="insight-stat-label">Top Category</div>
-          <div class="insight-stat-value">${topCat.emoji} ${topCatPct}%</div>
-          <div class="insight-stat-sub">${topCat.id} · ${ils(+summary[topCatId])}</div>
-        </div>
-        <div class="insight-stat">
           <div class="insight-stat-label">Biggest Expense</div>
           <div class="insight-stat-value">${ils(+biggest.amount)}</div>
-          <div class="insight-stat-sub">${biggestCat.emoji} ${biggest.category}${biggest.note ? ' · ' + biggest.note : ''}</div>
+          <div class="insight-stat-sub">${biggestCat.emoji} ${biggest.category}${biggest.note ? ' · ' + biggest.note : ''} · excl. Bills</div>
         </div>
         <div class="insight-stat">
           <div class="insight-stat-label">Busiest Day</div>
           <div class="insight-stat-value">${busiestDayLabel}</div>
-          <div class="insight-stat-sub">${ils(Math.round(busiestDayTotal))} spent</div>
+          <div class="insight-stat-sub">${busiestDay ? ils(Math.round(busiestDayTotal)) + ' spent · excl. Bills' : 'no non-bill expenses'}</div>
         </div>
       </div>
       ${paceHtml}
@@ -1348,11 +1496,21 @@ async function loadDashboard() {
 
   const insightsEl = document.getElementById('insights-list');
   const insightItems = [];
+
+  const [alY, alM] = selectedMonth.split('-').map(Number);
+  const alToday = new Date();
+  const alIsCurrentMonth = alY === alToday.getFullYear() && alM === (alToday.getMonth() + 1);
+  const alDaysInMonth = new Date(alY, alM, 0).getDate();
+  const alDaysElapsed = alIsCurrentMonth ? alToday.getDate() : alDaysInMonth;
+  const alDaysRemaining = alDaysInMonth - alDaysElapsed;
+
   CATEGORIES.forEach(cat => {
     const curr = +(summary[cat.id] || 0);
     const prev = +(prevSummary[cat.id] || 0);
     if (!curr && !prev) return;
-    if (prev > 0) {
+
+    // Month-over-month change alerts — exclude Bills (fixed recurring costs skew comparisons)
+    if (cat.id !== 'Bills' && prev > 0) {
       const change = (curr - prev) / prev;
       if (change > 0.2) {
         insightItems.push({ cls: 'insight-up', icon: '⚠️', text: `<strong>${cat.emoji} ${cat.id}</strong> is up ${Math.round(change * 100)}% vs last month (${ils(prev)} → ${ils(curr)})` });
@@ -1360,9 +1518,21 @@ async function loadDashboard() {
         insightItems.push({ cls: 'insight-down', icon: '✅', text: `<strong>${cat.emoji} ${cat.id}</strong> is down ${Math.round(Math.abs(change) * 100)}% vs last month` });
       }
     }
+
     const budget = +(budgetData[cat.id] || 0);
-    if (budget > 0 && curr > budget) {
-      insightItems.push({ cls: 'insight-up', icon: '🔴', text: `<strong>${cat.emoji} ${cat.id}</strong> is over budget by ${ils(curr - budget)}` });
+    if (budget > 0) {
+      if (curr > budget) {
+        // Already over budget
+        insightItems.push({ cls: 'insight-up', icon: '🔴', text: `<strong>${cat.emoji} ${cat.id}</strong> is over budget by ${ils(curr - budget)}` });
+      } else if (alIsCurrentMonth && alDaysElapsed > 0 && alDaysRemaining > 0) {
+        // Project spend to end of month and warn if on pace to exceed budget
+        const dailyRate = curr / alDaysElapsed;
+        const projected = curr + dailyRate * alDaysRemaining;
+        if (projected > budget) {
+          const overage = Math.round(projected - budget);
+          insightItems.push({ cls: 'insight-warn', icon: '📉', text: `<strong>${cat.emoji} ${cat.id}</strong> on pace to exceed budget by ${ils(overage)} — ${ils(Math.round(budget - curr))} left with ${alDaysRemaining} day${alDaysRemaining !== 1 ? 's' : ''} to go` });
+        }
+      }
     }
   });
   if (!insightItems.length) {
@@ -1390,35 +1560,43 @@ async function loadSettingsTab() {
   document.getElementById('usd-rate-input').value = usdRate;
   document.getElementById('api-url-input').value = apiUrl !== PLACEHOLDER_URL ? apiUrl : '';
 
-  // Budget settings
-  let budgetData = {};
-  try {
-    const res = await api('get_budgets');
-    budgetData = Object.fromEntries((res.budgets || []).map(b => [b.category, +b.monthlyLimit]));
+  // Render from cache immediately if available
+  const keyBudgets   = cacheKey('get_budgets');
+  const keyFavorites = cacheKey('get_favorites');
+  const keyRecurring = cacheKey('get_recurring');
+  const allCached = [keyBudgets, keyFavorites, keyRecurring].every(k => _cache[k] !== undefined);
+  const anyDirty  = [keyBudgets, keyFavorites, keyRecurring].some(k => _dirty.has(k));
+
+  function applySettingsData(budRes, favRes, recRes) {
+    const budgetData = Object.fromEntries((budRes.budgets || []).map(b => [b.category, +b.monthlyLimit]));
     budgets = budgetData;
-  } catch {}
+    favorites = favRes.favorites || [];
+    const recurring = recRes.recurring || [];
 
-  const list = document.getElementById('budget-settings-list');
-  list.innerHTML = CATEGORIES.map(cat => `
-    <div class="settings-row">
-      <span class="settings-row-label">${cat.emoji} ${cat.id}</span>
-      <input type="number" id="budget-${cat.id.replace(/\s+/g, '-')}" value="${budgetData[cat.id] || ''}" placeholder="—" min="0" step="10">
-    </div>`).join('');
+    const list = document.getElementById('budget-settings-list');
+    list.innerHTML = CATEGORIES.map(cat => `
+      <div class="settings-row">
+        <span class="settings-row-label">${cat.emoji} ${cat.id}</span>
+        <input type="number" id="budget-${cat.id.replace(/\s+/g, '-')}" value="${budgetData[cat.id] || ''}" placeholder="—" min="0" step="10">
+      </div>`).join('');
+    renderFavoritesManage();
+    renderRecurringManage(recurring);
+  }
 
-  // Favorites manage
-  try {
-    const res = await api('get_favorites');
-    favorites = res.favorites || [];
-  } catch { favorites = []; }
-  renderFavoritesManage();
+  if (allCached) {
+    applySettingsData(_cache[keyBudgets], _cache[keyFavorites], _cache[keyRecurring]);
+  }
 
-  // Recurring manage
-  let recurring = [];
-  try {
-    const res = await api('get_recurring');
-    recurring = res.recurring || [];
-  } catch {}
-  renderRecurringManage(recurring);
+  if (!allCached || anyDirty) {
+    try {
+      const [budRes, favRes, recRes] = await Promise.all([
+        cachedApi('get_budgets'),
+        cachedApi('get_favorites'),
+        cachedApi('get_recurring'),
+      ]);
+      applySettingsData(budRes, favRes, recRes);
+    } catch {}
+  }
 }
 
 function renderFavoritesManage() {
@@ -1463,6 +1641,7 @@ function renderRecurringManage(recurring) {
 async function deleteFavorite(id) {
   try {
     await api('delete_expense', { id });
+    invalidateCache(cacheKey('get_favorites'));
     showToast('Favorite deleted');
     favorites = favorites.filter(f => String(f.id) !== String(id));
     renderFavoritesManage();
@@ -1473,6 +1652,7 @@ async function deleteFavorite(id) {
 async function deleteRecurring(id) {
   try {
     await api('delete_expense', { id });
+    invalidateCache(cacheKey('get_recurring'));
     showToast('Recurring expense deleted');
     await loadSettingsTab();
   } catch {}
@@ -1496,12 +1676,13 @@ function saveUSDRate() {
 }
 
 async function saveBudgets() {
-  const entries = CATEGORIES.map(cat => ({
+  const budgets = CATEGORIES.map(cat => ({
     category: cat.id,
-    limit: parseFloat(document.getElementById('budget-' + cat.id.replace(/\s+/g, '-'))?.value) || 0,
-  })).filter(e => e.limit > 0);
+    monthlyLimit: parseFloat(document.getElementById('budget-' + cat.id.replace(/\s+/g, '-'))?.value) || 0,
+  }));
   try {
-    await Promise.all(entries.map(e => api('set_budget', { category: e.category, monthlyLimit: e.limit })));
+    await api('set_budgets', { budgets });
+    invalidateBudgetCache();
     showToast('Budgets saved ✓');
   } catch {}
 }
@@ -1509,6 +1690,7 @@ async function saveBudgets() {
 async function applyRecurring() {
   try {
     await api('apply_recurring');
+    invalidateExpenseCache(todayYM());
     showToast('Recurring expenses applied ✓');
   } catch {}
 }
